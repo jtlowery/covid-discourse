@@ -1,4 +1,4 @@
-"""geographic lists in dicts to aid in transforming the location strings to match with covid numbers"""
+"""geographic lists and dicts to aid in transforming the location/place strings to match with covid numbers values"""
 
 countries = [
     "Afghanistan",

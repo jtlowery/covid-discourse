@@ -17,7 +17,7 @@ from pyspark.sql.types import (
 from geo_vars import (
     countries, abbrvs_or_misspelling, state_province_to_country
 )
-from schemas import tweet_schema
+from schemas import tweet_output_schema, tweet_schema
 
 
 def create_spark_context(aws_conn_id):
@@ -62,7 +62,7 @@ def clean_place(location_str):
 
 
 class LoadTweetsToS3Operator(BaseOperator):
-    ui_color = '#32702e'
+    ui_color = '#32701e'
     template_fields = ('tweets_day_glob',)
 
     @apply_defaults
@@ -125,6 +125,9 @@ class LoadTweetsToS3Operator(BaseOperator):
             )
         )
 
+        # checking the types are as we expect by comparing df schema to the expected schema
+        assert df.schema == tweet_output_schema, f'df.schema not equal to the expected schema! \n{df.printSchema()}'
+
         self.log.info("saving to s3 at %s...", self.tweets_s3_location)
         (
             df
@@ -136,7 +139,7 @@ class LoadTweetsToS3Operator(BaseOperator):
         self.log.info("task successful!")
 
 
-class CheckTweetsETL(BaseOperator):
+class CheckTweetsCount(BaseOperator):
     ui_color = '#12702e'
     template_fields = ('daily_tweets_s3_location',)
 
@@ -149,12 +152,12 @@ class CheckTweetsETL(BaseOperator):
             **kwargs
     ):
         """
-        Operator to do a data quality check on tweet output from LoadTweetsToS3Operator
+        Operator to do a data quality (count) check on the daily tweet output from LoadTweetsToS3Operator
 
         :param daily_tweets_s3_location: s3 partition containing the day's tweets
         :param aws_conn_id: aws connection id for saving to s3
         """
-        super(CheckTweetsETL, self).__init__(*args, **kwargs)
+        super(CheckTweetsCount, self).__init__(*args, **kwargs)
         self.daily_tweets_s3_location = daily_tweets_s3_location
         self.aws_conn_id = aws_conn_id
 
@@ -172,5 +175,46 @@ class CheckTweetsETL(BaseOperator):
         n_tweet_records = df.count()
         # the first day in the dataset only has 189
         assert df.count() > 188, f"number of records in tweet data for this day is low at only {n_tweet_records}"
+
+        self.log.info("data quality checks passed!")
+
+
+class CheckTweetsUniqueness(BaseOperator):
+    ui_color = '#48502e'
+    template_fields = ('tweets_s3_location',)
+
+    @apply_defaults
+    def __init__(
+            self,
+            tweets_s3_location,
+            aws_conn_id,
+            *args,
+            **kwargs
+    ):
+        """
+        Operator to do a data quality (primary key uniqueness) check on tweet output from LoadTweetsToS3Operator
+
+        :param daily_tweets_s3_location: s3 partition containing the day's tweets
+        :param aws_conn_id: aws connection id for saving to s3
+        """
+        super(CheckTweetsUniqueness, self).__init__(*args, **kwargs)
+        self.tweets_s3_location = tweets_s3_location
+        self.aws_conn_id = aws_conn_id
+
+    def execute(self, context):
+        """checks uniqueness of all tweets from s3 (i.e. primary key integrity)"""
+
+        self.log.info("creating spark session")
+        sc = create_spark_context(self.aws_conn_id)
+
+        # read jsonl files
+        self.log.info("reading parquet file from %s...", self.tweets_s3_location)
+        df = sc.read.parquet(self.tweets_s3_location)
+
+        n_tweet_records = df.count()
+        n_distinct_tweets = df.select("id").distinct().count()
+        # check the number of tweets and distinct ids are the same (i.e. primary key integrity)
+        assert_msg = f"{n_tweet_records} tweet records does not match the {n_distinct_tweets} distinct tweet ids"
+        assert n_tweet_records == n_distinct_tweets, assert_msg
 
         self.log.info("data quality checks passed!")

@@ -113,7 +113,7 @@ majority of them are in English and doing an analysis across languages would be 
 
 | Field                  	| Data Type              	| (Acting as) Key 	|
 |------------------------	|------------------------	|-----------------	|
-| id                     	| bigint                 	| PK              	|
+| id                     	| int64                 	| PK              	|
 | created_at             	| string                 	|                 	|
 | created_date           	| date (saved as string) 	| FK              	|
 | place_country          	| string                 	| FK              	|
@@ -129,7 +129,7 @@ majority of them are in English and doing an analysis across languages would be 
    - (created_date, location_country) -> (date, country) on `country_covid_numbers`
    - (created_date, location_country, location_province) -> (date, country, province) on `province_country_covid_numbers`
 
-## 4 - ETL Process and Data Dictionary
+## 4 - ETL Process, Data Dictionary, and Data Quality Checks
 
 Airflow is used to schedule and execute the pipelines. There are two DAGs - one for each dataset. 
 
@@ -145,7 +145,29 @@ cleans and processes them, then loads each of the two outputs as csv files to s3
 two outputs from the previous task and checks that there is a reasonable number of rows in each, the expected number of 
 columns/fields is correct, and that the countries and provinces are the ones (and are formatted) as we expect. 
 
-Please see data dictionary for descriptions of fields. 
+The output of the above ETL process resembles the traditional star schema - one fact table (tweets) which contains 
+records of a specific event/tweet and two dimensions tables which each contain additional info (extra characteristics 
+such as count of confirmed cases) about a specific dates and geographies. A main advantage of this schema is it's 
+simplicity to work with and join the tables together -- which happens to be the main goal of this project -- making it 
+easy to join these datasets by geography and time.  
+
+Please see `data_dictionary.md` for descriptions of fields. 
+
+Data quality checks are performed in the DAGs for each dataset. The below table summarizes each check and where it 
+occurs.
+
+| Data Check                                                        	| DAG Location  	| Task Location           	|
+|-------------------------------------------------------------------	|---------------	|-------------------------	|
+| Tweet output matches with expected data types (schema)            	| tweet_etl     	| load_tweets             	|
+| Count of daily’s tweets output >= a minimum (the lowest day’s)    	| tweet_etl     	| count_check_tweets      	|
+| Primary key integrity (all tweets have a unique id)               	| tweet_etl     	| check_tweets_uniqueness 	|
+| Primary key integrity (PK is unique across rows) – before s3 load 	| covid_numbers 	| load_covid_numbers      	|
+| Primary key integrity (PK is unique across rows) – after s3 load  	| covid_numbers 	| check_covid_numbers     	|
+| Covid numbers output matches expected data types – before s3 load 	| covid_numbers 	| load_covid_numbers      	|
+| Covid numbers output matches expected data types – after s3 load  	| covid_numbers 	| check_covid_numbers     	|
+| Count of rows in Covid numbers output is reasonable               	| covid_numbers 	| check_covid_numbers     	|
+| Count of columns in Covid numbers output is as expected           	| covid_numbers 	| check_covid_numbers     	|
+| Only valid country and province values in Covid numbers output    	| covid_numbers 	| check_covid_numbers     	|
 
 
 ## 5 - Goals, Next Steps, and Other Considerations
@@ -185,7 +207,8 @@ use AWS Athena or another database technology that can work on top of s3.
     - I've supplied the copies I pulled of the csv's from [COVID-19](https://github.com/CSSEGISandData/COVID-19) in 
       the `data/COVID-19/` directory in this project
     - I've also supplied a fake, test dataset that mimics the structure of the rehydrated tweets in 
-      `data/fake-test-tweets/`
+      `data/fake-test-tweets/`. Please note that this data has an end date of 2020-04-09 so the DAGs will begin to fail
+      once running out of the fake data.
 - Install 
     - Install conda (https://docs.anaconda.com/anaconda/install/)
     - Run `conda env create -f covid-sentiment.yml` to create environment (can also manually install packages but I had 

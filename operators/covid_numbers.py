@@ -3,12 +3,18 @@ from datetime import datetime
 import pandas as pd
 from airflow.models import BaseOperator
 from airflow.utils.decorators import apply_defaults
+from pandas.api.types import is_string_dtype, is_numeric_dtype
 
 from geo_vars import countries, state_provinces, us_state_provinces
 
 
 def initial_clean(df):
-    """standardize column names and drop unused columns"""
+    """
+    standardize column names and drop unused columns
+
+    :param df: dataframe to perform renames and column drops on
+    :return: cleaned dataframe
+    """
     df = df.rename(columns={
         'Province/State': 'province',
         'Province_State': 'province',
@@ -36,7 +42,14 @@ def initial_clean(df):
 
 
 def convert_wide_to_tidy(df, var_name, value_name):
-    """standardize country names and convert wide df to long/tidy"""
+    """
+    standardize country names and convert wide df to long/tidy
+
+    :param df: dataframe in wide format
+    :param var_name: name to use for variable column (the column that will contain the dates)
+    :param value_name: name to use for the value column (column which contains case number observations)
+    :return: dataframe in tidy format
+    """
     date_cols = [col for col in df.columns.tolist() if '/' in col]
     tidy = pd.melt(
         df,
@@ -51,8 +64,43 @@ def convert_wide_to_tidy(df, var_name, value_name):
     return tidy
 
 
+def assert_primary_key_is_unique(df, primary_key_cols):
+    """
+    check that the column(s) that make up primary key are truly unique in dataframe
+
+    :param df: dataframe to check primary key uniqueness
+    :param primary_key_cols: columns of dataframe that make up primary key
+    :raises: AssertionError
+    :return: None
+    """
+    n_rows = len(df[primary_key_cols])
+    n_unique_rows = len(df[primary_key_cols].drop_duplicates())
+    assert n_rows == n_unique_rows, 'primary keys are not unique!'
+
+
+def assert_dtypes_as_expected(df):
+    """
+    checks that the dataframe has the expected dtypes
+
+    :param df: dataframe, final outputs from LoadCovidNumbersToS3Operator
+    :raises: AssertionError
+    :return: None
+    """
+    cols_to_dtype_func = {
+        "country": is_string_dtype,
+        "province": is_string_dtype,
+        "date": is_string_dtype,
+        "deaths": is_numeric_dtype,
+        "confirmed": is_numeric_dtype,
+        "recovered": is_numeric_dtype,
+    }
+    for col, is_dtype_func in cols_to_dtype_func.items():
+        if col in df.columns:
+            assert is_dtype_func(df[col]), f'col {col} failed dtype check of {is_dtype_func}'
+
+
 class LoadCovidNumbersToS3Operator(BaseOperator):
-    ui_color = '#733581'
+    ui_color = '#936581'
 
     @apply_defaults
     def __init__(
@@ -143,6 +191,15 @@ class LoadCovidNumbersToS3Operator(BaseOperator):
         # province, country level aggregation
         final_df = final_df[final_df['province'].notnull()].reset_index(drop=True)
 
+        # check primary keys are truly unique
+        self.log.info('checking primary keys uniqueness...')
+        assert_primary_key_is_unique(final_df, primary_key_cols=["province", "country", "date"])
+        assert_primary_key_is_unique(final_df_country, primary_key_cols=["country", "date"])
+
+        # check dtypes are as expected
+        assert_dtypes_as_expected(final_df)
+        assert_dtypes_as_expected(final_df_country)
+
         # save to s3
         self.log.info('saving to output to s3...')
         final_df.to_csv(f'{self.covid_numbers_s3_location}/province_country_covid_numbers.csv', index=False)
@@ -152,7 +209,7 @@ class LoadCovidNumbersToS3Operator(BaseOperator):
 
 
 class CheckCovidNumbersETL(BaseOperator):
-    ui_color = '#433581'
+    ui_color = '#430581'
 
     @apply_defaults
     def __init__(
@@ -178,6 +235,15 @@ class CheckCovidNumbersETL(BaseOperator):
         self.log.info('downloading csv files from %s...', self.covid_numbers_s3_location)
         country_df = pd.read_csv(f'{self.covid_numbers_s3_location}/country_covid_numbers.csv')
         province_df = pd.read_csv(f'{self.covid_numbers_s3_location}/province_country_covid_numbers.csv')
+
+        # check primary keys are truly unique
+        self.log.info('checking primary keys uniqueness...')
+        assert_primary_key_is_unique(province_df, primary_key_cols=["province", "country", "date"])
+        assert_primary_key_is_unique(country_df, primary_key_cols=["country", "date"])
+
+        # check dtypes are as expected
+        assert_dtypes_as_expected(province_df)
+        assert_dtypes_as_expected(country_df)
 
         # check a reasonable amount of data is present for each cleaned dataset
         self.log.info('checking reasonable number of rows in datasets...')

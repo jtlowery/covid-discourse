@@ -9,13 +9,15 @@ from operators import (
     LoadCovidNumbersToS3Operator,
 )
 from operators.covid_numbers import CheckCovidNumbersETL
-from operators.tweets import CheckTweetsETL
+from operators.tweets import CheckTweetsCount, CheckTweetsUniqueness
 
 config = configparser.ConfigParser()
 config.read('etl.cfg')
 os.environ['AWS_ACCESS_KEY_ID'] = config['AWS']['AWS_ACCESS_KEY_ID']
 os.environ['AWS_SECRET_ACCESS_KEY'] = config['AWS']['AWS_SECRET_ACCESS_KEY']
 
+
+# defining the DAG for processing tweets
 tweet_args = {
     'owner': 'Joel',
     'start_date': datetime(2020, 1, 21),
@@ -24,7 +26,6 @@ tweet_args = {
     'retries': 3,
     'retry_delay': timedelta(minutes=15),
 }
-
 tweets_dag = DAG(
     'tweet_etl',
     default_args=tweet_args,
@@ -44,15 +45,23 @@ load_tweets = LoadTweetsToS3Operator(
     aws_conn_id='aws_conn',
 )
 daily_tweets_s3_location = os.path.join(tweets_s3_location, 'create_date={{ ds }}/')
-tweets_quality_check = CheckTweetsETL(
-    task_id='check_tweets',
+tweets_count_check = CheckTweetsCount(
+    task_id='count_check_tweets',
     dag=tweets_dag,
     daily_tweets_s3_location=daily_tweets_s3_location,
     aws_conn_id='aws_conn',
 )
-load_tweets >> tweets_quality_check
+tweets_uniqueness_check = CheckTweetsUniqueness(
+    task_id='check_tweets_uniqueness',
+    dag=tweets_dag,
+    tweets_s3_location=tweets_s3_location,
+    aws_conn_id='aws_conn',
+)
+load_tweets >> tweets_count_check
+load_tweets >> tweets_uniqueness_check
 
 
+# defining the DAG for processing the covid case numbers
 covid_numbers_args = {
     'owner': 'Joel',
     'depends_on_past': False,

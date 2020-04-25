@@ -4832,3 +4832,33 @@ tweet_schema_dict = {
                 'metadata': {}}]
 }
 tweet_schema = StructType.fromJson(tweet_schema_dict)
+
+tweet_output_schema_dict = {
+    'type': 'struct',
+ 'fields': [{'name': 'id', 'type': 'long', 'nullable': True, 'metadata': {}},
+  {'name': 'created_at', 'type': 'string', 'nullable': True, 'metadata': {}},
+  {'name': 'create_date', 'type': 'string', 'nullable': True, 'metadata': {}},
+  {'name': 'place_location',
+   'type': 'string',
+   'nullable': True,
+   'metadata': {}},
+  {'name': 'place_province',
+   'type': 'string',
+   'nullable': True,
+   'metadata': {}},
+  {'name': 'place_country',
+   'type': 'string',
+   'nullable': True,
+   'metadata': {}},
+  {'name': 'user_location',
+   'type': 'string',
+   'nullable': True,
+   'metadata': {}},
+  {'name': 'user_province',
+   'type': 'string',
+   'nullable': True,
+   'metadata': {}},
+  {'name': 'user_country', 'type': 'string', 'nullable': True, 'metadata': {}},
+  {'name': 'full_text', 'type': 'string', 'nullable': True, 'metadata': {}}]
+}
+tweet_output_schema = StructType.fromJson(tweet_output_schema_dict)
